@@ -14,6 +14,7 @@ import logging
 import json
 from django.views.decorators.csrf import csrf_exempt
 from .models import CarMake, CarModel
+from .restapis import get_request, analyze_review_sentiments, post_review
 from .populate import initiate
 
 
@@ -83,41 +84,71 @@ def registration(request):
 # a list of dealerships
 # def get_dealerships(request):
 def get_dealerships(request, state="All"):
-    if(state == "All"):
-        endpoint = "/fetchDealers"
-    else:
-        endpoint = "/fetchDealers/"+state
+    # Always fetch all dealerships
+    endpoint = "/fetchDealers"
     dealerships = get_request(endpoint)
-    return JsonResponse({"status":200,"dealers":dealerships})
+
+    # If a specific state is requested, filter manually
+    if state != "All":
+        filtered_dealers = [dealer for dealer in dealerships if dealer.get('state','').lower() == state.lower()]
+    else:
+        filtered_dealers = dealerships
+
+    print("Dealerships for", state, ":", filtered_dealers)
+    return JsonResponse({"status": 200, "dealers": filtered_dealers})
 
 # Create a `get_dealer_reviews` view to render the reviews of a dealer
 # def get_dealer_reviews(request,dealer_id):
 def get_dealer_reviews(request, dealer_id):
-    # if dealer id has been provided
-    if(dealer_id):
-        endpoint = "/fetchReviews/dealer/"+str(dealer_id)
-        reviews = get_request(endpoint)
-        for review_detail in reviews:
-            response = analyze_review_sentiments(review_detail['review'])
-            print(response)
-            review_detail['sentiment'] = response['sentiment']
-        return JsonResponse({"status":200,"reviews":reviews})
-    else:
-        return JsonResponse({"status":400,"message":"Bad Request"})
+    if not dealer_id:
+        return JsonResponse({"status": 400, "message": "Bad Request"})
 
+    endpoint = f"/fetchReviews/dealer/{dealer_id}"
+    try:
+        reviews = get_request(endpoint)
+        if not reviews:
+            reviews = []
+    except Exception as e:
+        print(f"Error fetching reviews for dealer {dealer_id}: {e}")
+        reviews = []
+
+    # Analyze sentiment safely
+    for review_detail in reviews:
+        try:
+            response = analyze_review_sentiments(review_detail.get('review', ''))
+            review_detail['sentiment'] = response.get('sentiment', 'unknown') if response else 'unknown'
+        except Exception as e:
+            print(f"Error analyzing sentiment for review {review_detail.get('_id')}: {e}")
+            review_detail['sentiment'] = 'unknown'
+
+    return JsonResponse({"status": 200, "reviews": reviews})
 # Create a `get_dealer_details` view to render the dealer details
 # def get_dealer_details(request, dealer_id):
 def get_dealer_details(request, dealer_id):
-    if(dealer_id):
-        endpoint = "/fetchDealer/"+str(dealer_id)
+    if not dealer_id:
+        return JsonResponse({"status": 400, "message": "Bad Request"})
+
+    endpoint = f"/fetchDealer/{dealer_id}"
+
+    try:
         dealership = get_request(endpoint)
-        return JsonResponse({"status":200,"dealer":dealership})
-    else:
-        return JsonResponse({"status":400,"message":"Bad Request"})
+        if not dealership:
+            print(f"No dealer found for id {dealer_id}")
+            return JsonResponse({"status": 404, "message": "Dealer not found"})
+        
+        # Ensure it's always a list for the frontend
+        if isinstance(dealership, dict):
+            dealership = [dealership]
+        
+        return JsonResponse({"status": 200, "dealer": dealership})
+    except Exception as e:
+        print(f"Error fetching dealer details for id {dealer_id}: {e}")
+        return JsonResponse({"status": 500, "message": "Error fetching dealer details"})
 
 
 # Create a `add_review` view to submit a review
 # def add_review(request):
+@csrf_exempt
 def add_review(request):
     if(request.user.is_anonymous == False):
         data = json.loads(request.body)

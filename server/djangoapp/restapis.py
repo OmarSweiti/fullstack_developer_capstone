@@ -2,7 +2,6 @@
 import requests
 import os
 from dotenv import load_dotenv
-from .restapis import get_request, analyze_review_sentiments, post_review
 
 load_dotenv()
 
@@ -15,22 +14,19 @@ sentiment_analyzer_url = os.getenv(
 # def get_request(endpoint, **kwargs):
 # Add code for get requests to back end
 def get_request(endpoint, **kwargs):
-    params = ""
-    if(kwargs):
-        for key,value in kwargs.items():
-            params=params+key+"="+value+"&"
-
-    request_url = backend_url+endpoint+"?"+params
-
-    print("GET from {} ".format(request_url))
+    request_url = backend_url + endpoint
+    print(f"GET from {request_url} with params {kwargs}")
+    
     try:
-        # Call get method of requests library with URL and parameters
-        response = requests.get(request_url)
+        response = requests.get(request_url, params=kwargs, timeout=5)
+        response.raise_for_status()  # raise error for bad status codes
         return response.json()
-    except:
-        # If any error occurs
-        print("Network exception occurred")
-
+    except requests.exceptions.RequestException as e:
+        print(f"Network exception occurred: {e}")
+        return []
+    except ValueError as e:
+        print(f"JSON decode error from {request_url}: {e}")
+        return []
 # def analyze_review_sentiments(text):
 # request_url = sentiment_analyzer_url+"analyze/"+text
 # Add code for retrieving sentiments
